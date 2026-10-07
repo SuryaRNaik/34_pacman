@@ -169,6 +169,10 @@ class Game:
         # Reset flash state so milestones trigger fresh in each game
         global _flash_msg, _flash_timer, _flash_triggered
         _flash_msg, _flash_timer, _flash_triggered = "", 0.0, set()
+        # Eat the pellet at the starting cell – the player spawns there and
+        # move_player() only calls eat() when moving INTO a new cell, so the
+        # starting position would otherwise remain in self.pellets forever.
+        self.eat(tuple(PLAYER_START))
 
     def respawn(self):
         self.player, self.direction, self.desired = list(PLAYER_START), (0, 1), (0, 1)
@@ -176,6 +180,8 @@ class Game:
         for ghost in self.ghosts:
             ghost.reset()
         self.clock_time = 0.0
+        # Same reason as reset(): clear the spawn-cell pellet if it was not yet eaten.
+        self.eat(tuple(PLAYER_START))
 
     def chasing(self):
         return (self.clock_time % 27) >= 7
