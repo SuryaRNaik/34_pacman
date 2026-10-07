@@ -27,21 +27,55 @@ HOUSE_EXIT, HOUSE_CENTER = (7, 10), (9, 10)
 PLAYER_START = (11, 10)
 FRIGHT_SECONDS = 3.0
 PLAYER_STEP, GHOST_STEP = 0.14, 0.17
+TOTAL_PELLETS = sum(row.count(".") + row.count("o") for row in MAZE)
+
+# Flash state written by on_pellet_eaten(), read by draw() / update()
+_flash_msg       = ""     # text to display
+_flash_timer     = 0.0    # seconds remaining
+_flash_triggered = set()  # which milestones have already fired this game
 
 
 def ghost_color(name, mode):
-    """Return an (r, g, b) colour override for a ghost, or None to keep the default."""
-    pass
+    """Return an (r, g, b) colour override for a ghost, or None to keep the default.
+
+    normal / eaten → None  (preserve existing colours and eye-only rendering)
+    frightened     → a distinct per-ghost tint so each ghost looks different
+                     while still clearly signalling vulnerability.
+    """
+    if mode != "frightened":
+        return None
+    # Distinct muted tints per ghost (all clearly differ from their normal colours)
+    FRIGHTENED_TINTS = {
+        "blinky": (180,  60, 160),   # magenta-purple
+        "pinky":  ( 60, 180,  80),   # mint green
+        "inky":   (220, 130,  30),   # amber
+        "clyde":  ( 80,  60, 200),   # indigo
+    }
+    return FRIGHTENED_TINTS.get(name)
 
 
 def on_pellet_eaten(score, pellets_left):
-    """Called after every pellet is eaten; add sound, flashes, or bonus fruit here."""
-    pass
+    """Called after every pellet is eaten; add sound, flashes, or bonus fruit here.
+
+    Shows a brief HUD message when the player clears 50 % or 25 % of all pellets.
+    Uses a range-crossing guard so the flash fires exactly once per milestone
+    even if the exact threshold value is skipped in a single frame.
+    """
+    global _flash_msg, _flash_timer, _flash_triggered
+    half    = TOTAL_PELLETS // 2
+    quarter = TOTAL_PELLETS // 4
+    # Fire when pellets_left crosses *down through* the threshold for the first time
+    if pellets_left <= half and "half" not in _flash_triggered:
+        _flash_triggered.add("half")
+        _flash_msg, _flash_timer = "HALFWAY!", 1.5
+    elif pellets_left <= quarter and "quarter" not in _flash_triggered:
+        _flash_triggered.add("quarter")
+        _flash_msg, _flash_timer = "ALMOST THERE!", 1.5
 
 
 def bonus_life_threshold():
     """Return a score value at which the player earns an extra life, or None to disable bonus lives."""
-    pass
+    return 10000
 
 
 def is_wall(cell):
@@ -132,6 +166,9 @@ class Game:
         self.clock_time = self.fright_left = self.player_acc = self.ghost_acc = 0.0
         for ghost in self.ghosts:
             ghost.reset()
+        # Reset flash state so milestones trigger fresh in each game
+        global _flash_msg, _flash_timer, _flash_triggered
+        _flash_msg, _flash_timer, _flash_triggered = "", 0.0, set()
 
     def respawn(self):
         self.player, self.direction, self.desired = list(PLAYER_START), (0, 1), (0, 1)
@@ -157,7 +194,7 @@ class Game:
             return
         self.pellets.remove(cell)
         self.score += 10
-        if MAZE[cell[0]][cell[1]] == "O":
+        if MAZE[cell[0]][cell[1]] == "o":
             self.score += 40
             self.fright_left = FRIGHT_SECONDS
             for ghost in self.ghosts:
@@ -185,6 +222,8 @@ class Game:
         if self.state != "play":
             return
         self.clock_time += dt
+        global _flash_timer
+        _flash_timer = max(0.0, _flash_timer - dt)
         self.fright_left = max(0.0, self.fright_left - dt)
         threshold = bonus_life_threshold()
         if threshold and self.score // threshold > self.bonus_awarded:
@@ -242,6 +281,9 @@ class Game:
                 pygame.draw.circle(screen, (255, 255, 255), (gx + 4, gy - 4), 3)
         hud = font.render(f"Score {self.score}   Lives {self.lives}   R = reset", True, (240, 240, 240))
         screen.blit(hud, (8, ROWS * TILE + 6))
+        if _flash_timer > 0:
+            flash_surf = font.render(_flash_msg, True, (255, 220, 60))
+            screen.blit(flash_surf, flash_surf.get_rect(center=(W // 2, ROWS * TILE // 2)))
         if self.state != "play":
             text = "YOU WIN! Press R" if self.state == "win" else "GAME OVER - Press R"
             label = font.render(text, True, (255, 255, 120))
